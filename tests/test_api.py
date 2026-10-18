@@ -32,6 +32,27 @@ def test_topics_count():
     assert "3." in body["result"] and "4." not in body["result"]
 
 
+def test_demo_topics_are_not_repetitive():
+    r = client.post("/api/topics", json={"niche": "AI 工具", "count": 8})
+    reasons = [l for l in r.json()["result"].splitlines() if "点开理由" in l]
+    assert len(reasons) == 8
+    assert len(set(reasons)) == 8
+
+
+def test_demo_rewrite_uses_input_sentences():
+    r = client.post(
+        "/api/rewrite",
+        json={"text": "先选一个场景。坚持每天使用。每周复盘一次。", "platform": "xiaohongshu"},
+    )
+    result = r.json()["result"]
+    assert "坚持每天使用" in result and "每周复盘一次" in result
+
+
+def test_demo_outline_without_audience_is_clean():
+    r = client.post("/api/outline", json={"topic": "AI 变现", "platform": "wechat"})
+    assert "目标读者：读者" not in r.json()["result"]
+
+
 def test_outline():
     r = client.post("/api/outline", json={"topic": "AI 变现", "platform": "wechat"})
     assert r.status_code == 200

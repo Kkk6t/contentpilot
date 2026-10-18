@@ -39,8 +39,16 @@
   .result { margin-top: 18px; display:none; }
   .result-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
   .result-head span { font-size:13px; color:var(--muted); }
-  pre { white-space: pre-wrap; word-break: break-word; margin:0; font: inherit;
-        background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .md { word-break: break-word; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 18px 14px; }
+  .md h1 { font-size:18px; margin:14px 0 6px; }
+  .md h2 { font-size:16px; margin:16px 0 6px; }
+  .md h3 { font-size:15px; margin:14px 0 4px; }
+  .md p { margin:8px 0; }
+  .md ul, .md ol { margin:6px 0 6px; padding-left:22px; }
+  .md li { margin:3px 0; }
+  .md strong { font-weight:600; }
+  .md blockquote { margin:12px 0 4px; padding:6px 12px; border-left:3px solid var(--accent); color:var(--muted); background:var(--accent-soft); border-radius:0 6px 6px 0; }
+  .md blockquote p { margin:2px 0; }
   .err { color:#d93025; margin-top:12px; display:none; }
   footer { margin-top: 24px; color: var(--muted); font-size: 12px; text-align:center; }
 </style>
@@ -67,7 +75,7 @@
     <div class="err" id="err"></div>
     <div class="result" id="result">
       <div class="result-head"><span id="meta"></span><button class="ghost" id="copy" type="button">复制结果</button></div>
-      <pre id="out"></pre>
+      <div id="out" class="md"></div>
     </div>
   </div>
   <footer>ContentPilot · MIT License</footer>
@@ -112,6 +120,46 @@ const out = document.getElementById('out');
 const meta = document.getElementById('meta');
 const errBox = document.getElementById('err');
 let current = 'topics';
+let rawResult = '';
+
+// 小型 Markdown 渲染器：先整体转义 HTML，再渲染标题、粗体、列表、引用和段落，避免注入。
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function inline(s) {
+  return esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+function renderMd(src) {
+  const lines = src.replace(/\r\n/g, '\n').split('\n');
+  const html = [];
+  let list = null;          // 'ul' | 'ol' | null
+  let quote = [];
+  const closeList = () => { if (list) { html.push(`</${list}>`); list = null; } };
+  const flushQuote = () => {
+    if (quote.length) { html.push('<blockquote>' + quote.map(q => `<p>${inline(q)}</p>`).join('') + '</blockquote>'); quote = []; }
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    let m;
+    if ((m = line.match(/^>\s?(.*)$/))) { closeList(); quote.push(m[1]); continue; }
+    flushQuote();
+    if (!line.trim()) { closeList(); continue; }
+    if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { closeList(); html.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
+      if (list !== 'ul') { closeList(); html.push('<ul>'); list = 'ul'; }
+      html.push(`<li>${inline(m[1])}</li>`); continue;
+    }
+    if ((m = line.match(/^\s*(\d+)[.、]\s+(.*)$/))) {
+      // 用原始序号作为起点，列表被子项打断后编号也能接着走
+      if (list !== 'ol') { closeList(); html.push(`<ol start="${m[1]}">`); list = 'ol'; }
+      html.push(`<li>${inline(m[2])}</li>`); continue;
+    }
+    closeList();
+    html.push(`<p>${inline(line)}</p>`);
+  }
+  closeList(); flushQuote();
+  return html.join('');
+}
 
 function render(tab) {
   current = tab;
@@ -139,7 +187,8 @@ form.addEventListener('submit', async e => {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : '请求参数有误');
-    out.textContent = json.result;
+    rawResult = json.result;
+    out.innerHTML = renderMd(rawResult);
     meta.textContent = json.mode === 'live' ? '由大模型生成' : '演示模式输出';
     resultBox.style.display = 'block';
   } catch (err) {
@@ -152,7 +201,7 @@ form.addEventListener('submit', async e => {
 
 document.getElementById('copy').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(out.textContent);
+    await navigator.clipboard.writeText(rawResult);
     const b = document.getElementById('copy'); b.textContent = '已复制';
     setTimeout(() => b.textContent = '复制结果', 1500);
   } catch (_) {}
