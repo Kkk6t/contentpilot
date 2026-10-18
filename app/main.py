@@ -1,14 +1,18 @@
+import logging
+import sqlite3
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import llm, mock, prompts
+from . import db, llm, mock, prompts
 
-app = FastAPI(title="ContentPilot", description="AI 内容运营助手", version="0.1.0")
+log = logging.getLogger("contentpilot")
+
+app = FastAPI(title="ContentPilot", description="AI 内容运营助手", version="0.2.0")
 
 STATIC_DIR = Path(__file__).parent / "static"
 Platform = Literal["wechat", "xiaohongshu", "twitter"]
@@ -43,8 +47,18 @@ async def _run(kind: str, params: dict) -> dict:
             text = await llm.chat(system, user)
         except llm.LLMError as e:
             raise HTTPException(status_code=502, detail=str(e))
-        return {"mode": "live", "result": text}
-    return {"mode": "demo", "result": mock.generate(kind, params)}
+        mode = "live"
+    else:
+        text = mock.generate(kind, params)
+        mode = "demo"
+
+    # 历史记录写入失败不应影响本次生成结果
+    history_id = None
+    try:
+        history_id = db.add(kind, params, text, mode)
+    except (sqlite3.Error, OSError):
+        log.exception("保存历史记录失败")
+    return {"mode": mode, "result": text, "history_id": history_id}
 
 
 @app.get("/api/health")
@@ -74,6 +88,47 @@ async def titles(req: TitlesReq):
 @app.post("/api/rewrite")
 async def rewrite(req: RewriteReq):
     return await _run("rewrite", req.model_dump())
+
+
+Kind = Literal["topics", "outline", "titles", "rewrite"]
+
+
+@app.get("/api/history")
+async def history_list(
+    kind: Kind | None = None,
+    favorite: bool = False,
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    return {"items": db.list_items(kind=kind, favorite_only=favorite, limit=limit)}
+
+
+@app.get("/api/history/{item_id}")
+async def history_get(item_id: int):
+    item = db.get(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return item
+
+
+@app.post("/api/history/{item_id}/favorite")
+async def history_favorite(item_id: int):
+    state = db.toggle_favorite(item_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return {"id": item_id, "favorite": state}
+
+
+@app.delete("/api/history/{item_id}")
+async def history_delete(item_id: int):
+    if not db.delete(item_id):
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return {"deleted": item_id}
+
+
+@app.delete("/api/history")
+async def history_clear():
+    """清空所有未收藏的记录，收藏的会保留。"""
+    return {"deleted": db.clear_unfavorited()}
 
 
 @app.get("/")

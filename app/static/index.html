@@ -49,6 +49,21 @@
   .md strong { font-weight:600; }
   .md blockquote { margin:12px 0 4px; padding:6px 12px; border-left:3px solid var(--accent); color:var(--muted); background:var(--accent-soft); border-radius:0 6px 6px 0; }
   .md blockquote p { margin:2px 0; }
+  .h-bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .h-bar select { width:auto; }
+  .h-bar .h-fav { display:flex; align-items:center; gap:6px; margin:0; color:var(--text); font-size:14px; }
+  .h-bar input[type=checkbox] { width:auto; }
+  .h-bar .ghost:last-child { margin-left:auto; }
+  .h-item { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:var(--bg); }
+  .h-top { display:flex; align-items:center; gap:8px; }
+  .h-kind { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); white-space:nowrap; }
+  .h-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .h-time { font-size:12px; color:var(--muted); white-space:nowrap; }
+  .h-star { color:#e8a317; }
+  .h-preview { color:var(--muted); font-size:13px; margin:6px 0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .h-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .h-detail { margin-top:10px; background:var(--card); }
+  .h-empty { text-align:center; color:var(--muted); padding:28px 0; }
   .err { color:#d93025; margin-top:12px; display:none; }
   footer { margin-top: 24px; color: var(--muted); font-size: 12px; text-align:center; }
 </style>
@@ -68,6 +83,7 @@
     <button data-tab="outline">文章大纲</button>
     <button data-tab="titles">爆款标题</button>
     <button data-tab="rewrite">多平台改写</button>
+    <button data-tab="history">历史记录</button>
   </nav>
 
   <div class="card">
@@ -163,11 +179,132 @@ function renderMd(src) {
 
 function render(tab) {
   current = tab;
-  const t = TABS[tab];
-  form.innerHTML = t.html + `<div class="actions"><button class="primary" type="submit">${t.button}</button></div>`;
   resultBox.style.display = 'none';
   errBox.style.display = 'none';
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'history') { renderHistoryShell(); return; }
+  const t = TABS[tab];
+  form.innerHTML = t.html + `<div class="actions"><button class="primary" type="submit">${t.button}</button></div>`;
+}
+
+// ---------- 历史记录 ----------
+const KIND_NAMES = { topics: '选题', outline: '大纲', titles: '标题', rewrite: '改写' };
+let histKind = '';
+let histFav = false;
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function showError(msg) {
+  errBox.textContent = '出错了：' + msg;
+  errBox.style.display = 'block';
+}
+
+async function api(url, options) {
+  const res = await fetch(url, options);
+  const json = await res.json();
+  if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : '请求失败');
+  return json;
+}
+
+function renderHistoryShell() {
+  const opts = Object.entries(KIND_NAMES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  form.innerHTML = `<div class="h-bar">
+      <select id="h-kind"><option value="">全部功能</option>${opts}</select>
+      <label class="h-fav"><input type="checkbox" id="h-fav"> 只看收藏</label>
+      <button type="button" class="ghost" id="h-clear">清空未收藏</button>
+    </div>
+    <div id="h-list"></div>`;
+  document.getElementById('h-kind').value = histKind;
+  document.getElementById('h-fav').checked = histFav;
+  document.getElementById('h-kind').onchange = e => { histKind = e.target.value; loadHistory(); };
+  document.getElementById('h-fav').onchange = e => { histFav = e.target.checked; loadHistory(); };
+  document.getElementById('h-clear').onclick = clearHistory;
+  document.getElementById('h-list').onclick = onHistoryClick;
+  loadHistory();
+}
+
+function historyItemEl(it) {
+  const el = document.createElement('div');
+  el.className = 'h-item';
+  el.dataset.id = it.id;
+  el.innerHTML = `<div class="h-top"><span class="h-kind"></span><span class="h-star"></span><span class="h-title"></span><span class="h-time"></span></div>
+    <div class="h-preview"></div>
+    <div class="h-actions">
+      <button type="button" class="ghost" data-act="view">查看</button>
+      <button type="button" class="ghost" data-act="fav"></button>
+      <button type="button" class="ghost" data-act="copy">复制</button>
+      <button type="button" class="ghost" data-act="del">删除</button>
+    </div>
+    <div class="md h-detail" hidden></div>`;
+  // 用户内容一律走 textContent，避免注入
+  el.querySelector('.h-kind').textContent = KIND_NAMES[it.kind] || it.kind;
+  el.querySelector('.h-title').textContent = it.title;
+  el.querySelector('.h-time').textContent = fmtTime(it.created_at);
+  el.querySelector('.h-preview').textContent = it.preview;
+  setFav(el, it.favorite);
+  return el;
+}
+
+function setFav(el, fav) {
+  el.dataset.fav = fav ? '1' : '0';
+  el.querySelector('.h-star').textContent = fav ? '★' : '';
+  el.querySelector('[data-act=fav]').textContent = fav ? '取消收藏' : '收藏';
+}
+
+async function loadHistory() {
+  const list = document.getElementById('h-list');
+  errBox.style.display = 'none';
+  try {
+    const q = new URLSearchParams();
+    if (histKind) q.set('kind', histKind);
+    if (histFav) q.set('favorite', 'true');
+    const { items } = await api('/api/history?' + q);
+    list.replaceChildren();
+    if (!items.length) {
+      list.innerHTML = '<div class="h-empty">还没有记录，去生成一些内容吧</div>';
+      return;
+    }
+    items.forEach(it => list.appendChild(historyItemEl(it)));
+  } catch (err) { showError(err.message); }
+}
+
+async function onHistoryClick(e) {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const el = btn.closest('.h-item');
+  const id = el.dataset.id;
+  const detail = el.querySelector('.h-detail');
+  try {
+    if (btn.dataset.act === 'view') {
+      if (!detail.hidden) { detail.hidden = true; btn.textContent = '查看'; return; }
+      if (!detail.innerHTML) detail.innerHTML = renderMd((await api('/api/history/' + id)).result);
+      detail.hidden = false; btn.textContent = '收起';
+    } else if (btn.dataset.act === 'fav') {
+      const { favorite } = await api(`/api/history/${id}/favorite`, { method: 'POST' });
+      setFav(el, favorite);
+      if (histFav && !favorite) { el.remove(); if (!document.querySelector('.h-item')) loadHistory(); }
+    } else if (btn.dataset.act === 'copy') {
+      await navigator.clipboard.writeText((await api('/api/history/' + id)).result);
+      btn.textContent = '已复制';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    } else if (btn.dataset.act === 'del') {
+      if (!confirm('确定删除这条记录吗？')) return;
+      await api('/api/history/' + id, { method: 'DELETE' });
+      el.remove();
+      if (!document.querySelector('.h-item')) loadHistory();
+    }
+  } catch (err) { showError(err.message); }
+}
+
+async function clearHistory() {
+  if (!confirm('将清空所有未收藏的记录（收藏的会保留），确定吗？')) return;
+  try {
+    await api('/api/history', { method: 'DELETE' });
+    loadHistory();
+  } catch (err) { showError(err.message); }
 }
 
 document.getElementById('tabs').addEventListener('click', e => {
@@ -176,6 +313,7 @@ document.getElementById('tabs').addEventListener('click', e => {
 
 form.addEventListener('submit', async e => {
   e.preventDefault();
+  if (current === 'history') return;
   const btn = form.querySelector('.primary');
   const data = Object.fromEntries(new FormData(form));
   if (data.count) data.count = Number(data.count);
@@ -189,7 +327,7 @@ form.addEventListener('submit', async e => {
     if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : '请求参数有误');
     rawResult = json.result;
     out.innerHTML = renderMd(rawResult);
-    meta.textContent = json.mode === 'live' ? '由大模型生成' : '演示模式输出';
+    meta.textContent = (json.mode === 'live' ? '由大模型生成' : '演示模式输出') + (json.history_id ? ' · 已保存到历史记录' : '');
     resultBox.style.display = 'block';
   } catch (err) {
     errBox.textContent = '出错了：' + err.message;

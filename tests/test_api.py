@@ -8,8 +8,10 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def demo_mode(monkeypatch):
+def demo_mode(monkeypatch, tmp_path):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
+    # 每个用例使用独立的临时数据库，互不影响
+    monkeypatch.setenv("CONTENTPILOT_DB", str(tmp_path / "history.db"))
 
 
 def test_health_demo():
@@ -86,7 +88,10 @@ def test_live_mode_uses_llm(monkeypatch):
 
     monkeypatch.setattr(llm, "chat", fake_chat)
     r = client.post("/api/titles", json={"topic": "副业"})
-    assert r.json() == {"mode": "live", "result": "来自模型的结果"}
+    body = r.json()
+    assert body["mode"] == "live"
+    assert body["result"] == "来自模型的结果"
+    assert isinstance(body["history_id"], int)
 
 
 def test_live_mode_error_returns_502(monkeypatch):
