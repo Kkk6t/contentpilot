@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContentPilot · AI 内容运营助手</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1f2430; --muted: #6b7280;
+    --line: #e5e7eb; --accent: #2f6fed; --accent-soft: #e8f0ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161b; --card:#1d2027; --text:#e8eaf0; --muted:#9aa1ae; --line:#2b2f39; --accent:#6c9bff; --accent-soft:#222b44; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+  .badge { font-size:12px; padding:4px 10px; border-radius:999px; background:var(--accent-soft); color:var(--accent); }
+  nav { display:flex; gap:8px; margin: 20px 0 12px; flex-wrap:wrap; }
+  nav button { border:1px solid var(--line); background:var(--card); color:var(--text);
+               padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
+  nav button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  label { display:block; font-size:13px; color:var(--muted); margin: 12px 0 4px; }
+  label:first-child { margin-top:0; }
+  input, select, textarea { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px;
+                            background:var(--bg); color:var(--text); font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  .actions { margin-top: 16px; display:flex; gap:10px; align-items:center; }
+  .primary { background:var(--accent); color:#fff; border:0; padding:10px 20px; border-radius:8px; cursor:pointer; font-size:15px; }
+  .primary:disabled { opacity:.6; cursor:wait; }
+  .ghost { background:transparent; border:1px solid var(--line); color:var(--text); padding:6px 12px; border-radius:8px; cursor:pointer; font-size:13px; }
+  .result { margin-top: 18px; display:none; }
+  .result-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .result-head span { font-size:13px; color:var(--muted); }
+  pre { white-space: pre-wrap; word-break: break-word; margin:0; font: inherit;
+        background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .err { color:#d93025; margin-top:12px; display:none; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 12px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>ContentPilot</h1>
+      <p class="sub">AI 内容运营助手：选题 · 大纲 · 标题 · 多平台改写</p>
+    </div>
+    <span class="badge" id="mode">检测中…</span>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="topics" class="active">选题生成</button>
+    <button data-tab="outline">文章大纲</button>
+    <button data-tab="titles">爆款标题</button>
+    <button data-tab="rewrite">多平台改写</button>
+  </nav>
+
+  <div class="card">
+    <form id="form"></form>
+    <div class="err" id="err"></div>
+    <div class="result" id="result">
+      <div class="result-head"><span id="meta"></span><button class="ghost" id="copy" type="button">复制结果</button></div>
+      <pre id="out"></pre>
+    </div>
+  </div>
+  <footer>ContentPilot · MIT License</footer>
+</div>
+
+<script>
+const PLATFORM_OPTS = '<option value="wechat">微信公众号</option><option value="xiaohongshu">小红书</option><option value="twitter">推特/X</option>';
+const COUNT_OPTS = [3,5,8,10].map(n => `<option value="${n}" ${n===5?'selected':''}>${n} 个</option>`).join('');
+
+const TABS = {
+  topics: {
+    endpoint: '/api/topics', button: '生成选题',
+    html: `<div class="row">
+             <div><label>赛道/领域</label><input name="niche" required maxlength="100" placeholder="例如：AI 工具、大学生副业"></div>
+             <div><label>目标读者</label><input name="audience" maxlength="100" placeholder="例如：想做副业的大学生"></div>
+           </div>
+           <label>数量</label><select name="count">${COUNT_OPTS}</select>`,
+  },
+  outline: {
+    endpoint: '/api/outline', button: '生成大纲',
+    html: `<label>文章主题</label><input name="topic" required maxlength="200" placeholder="例如：零基础如何用 AI 做内容变现">
+           <div class="row">
+             <div><label>目标读者</label><input name="audience" maxlength="100" placeholder="可选"></div>
+             <div><label>发布平台</label><select name="platform">${PLATFORM_OPTS}</select></div>
+           </div>`,
+  },
+  titles: {
+    endpoint: '/api/titles', button: '生成标题',
+    html: `<label>文章主题</label><input name="topic" required maxlength="200" placeholder="例如：AI 工具提升效率">
+           <label>数量</label><select name="count">${COUNT_OPTS}</select>`,
+  },
+  rewrite: {
+    endpoint: '/api/rewrite', button: '开始改写',
+    html: `<label>原文内容</label><textarea name="text" required maxlength="5000" placeholder="粘贴你已有的文章或想法"></textarea>
+           <label>目标平台</label><select name="platform">${PLATFORM_OPTS.replace('value="wechat"','value="wechat"').replace('<option value="xiaohongshu">','<option value="xiaohongshu" selected>')}</select>`,
+  },
+};
+
+const form = document.getElementById('form');
+const resultBox = document.getElementById('result');
+const out = document.getElementById('out');
+const meta = document.getElementById('meta');
+const errBox = document.getElementById('err');
+let current = 'topics';
+
+function render(tab) {
+  current = tab;
+  const t = TABS[tab];
+  form.innerHTML = t.html + `<div class="actions"><button class="primary" type="submit">${t.button}</button></div>`;
+  resultBox.style.display = 'none';
+  errBox.style.display = 'none';
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+}
+
+document.getElementById('tabs').addEventListener('click', e => {
+  if (e.target.dataset.tab) render(e.target.dataset.tab);
+});
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = form.querySelector('.primary');
+  const data = Object.fromEntries(new FormData(form));
+  if (data.count) data.count = Number(data.count);
+  btn.disabled = true; btn.textContent = '生成中…';
+  errBox.style.display = 'none';
+  try {
+    const res = await fetch(TABS[current].endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : '请求参数有误');
+    out.textContent = json.result;
+    meta.textContent = json.mode === 'live' ? '由大模型生成' : '演示模式输出';
+    resultBox.style.display = 'block';
+  } catch (err) {
+    errBox.textContent = '出错了：' + err.message;
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = TABS[current].button;
+  }
+});
+
+document.getElementById('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(out.textContent);
+    const b = document.getElementById('copy'); b.textContent = '已复制';
+    setTimeout(() => b.textContent = '复制结果', 1500);
+  } catch (_) {}
+});
+
+fetch('/api/health').then(r => r.json()).then(h => {
+  document.getElementById('mode').textContent = h.mode === 'live' ? `已接入模型：${h.model}` : '演示模式（未配置 API Key）';
+}).catch(() => { document.getElementById('mode').textContent = '服务未连接'; });
+
+render('topics');
+</script>
+</body>
+</html>
