@@ -27,7 +27,6 @@
 
 1. 在本页面点绿色的 **Code** 按钮 → **Download ZIP**
 2. 解压到任意位置，例如 `D:\contentpilot-main`（打开文件夹应能直接看到 `app`、`requirements.txt`）
-3. Windows 用户可以直接**双击 `start.bat`**，它会自动安装依赖并启动，跳过第二步
 
 **方式 B：已安装 Git**
 
@@ -36,16 +35,22 @@ git clone https://github.com/Kkk6t/contentpilot.git
 cd contentpilot
 ```
 
-### 第二步：安装依赖并启动
+### 第二步：在项目文件夹里打开命令行
 
-先用 `cd` 进入项目文件夹（Windows 跨盘符要加 `/d`，例如 `cd /d D:\contentpilot-main`），然后：
+**Windows 最简单的方法**：打开项目文件夹（能看到 `app`、`requirements.txt` 的那一层），点一下窗口顶部的**地址栏**，删掉里面的内容，输入 `cmd` 回车。弹出的黑色窗口就已经在项目文件夹里了。
+
+也可以手动打开命令行再 `cd` 进去（跨盘符要加 `/d`，例如 `cd /d D:\contentpilot-main`）。macOS / Linux 打开终端后 `cd` 到项目文件夹即可。
+
+### 第三步：安装依赖并启动
 
 ```bash
 python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app
 ```
 
-看到 `Uvicorn running on http://127.0.0.1:8000` 后，浏览器打开 http://127.0.0.1:8000 即可使用。不填 API Key 也能跑（演示模式）。
+第一条只需要第一次运行时执行。看到 `Uvicorn running on http://127.0.0.1:8000` 后，**复制这个地址到浏览器打开**即可使用。不填 API Key 也能跑（演示模式）。
+
+用完关掉命令行窗口（或按 `Ctrl+C`）就停止服务；下次使用只需重复第二步和第三步的第二条命令。
 
 > 为什么用 `python -m pip` 而不是 `pip`：Windows 上直接运行 `pip.exe` / `uvicorn.exe` 有时会被系统安全策略（智能应用控制 / Device Guard）拦截，或者调用到别的 Python 环境。`python -m` 的写法更稳。
 
@@ -55,7 +60,7 @@ python -m uvicorn app.main:app --reload
 | --- | --- |
 | `'git' 不是内部或外部命令` | 没装 Git，用上面的方式 A 下载 ZIP |
 | `系统找不到指定的路径` | 项目还没下载下来，或 `cd` 的路径不对 |
-| `Could not open requirements file` | 当前不在项目文件夹里，先 `cd` 进去 |
+| `Could not open requirements file` | 当前不在项目文件夹里，用第二步的地址栏方法重新打开命令行 |
 | `No module named 'app'` | 同上，必须在项目根目录（能看到 `app` 文件夹的那一层）运行 |
 | `...已被组织的 Device Guard 策略阻止` | 改用 `python -m pip`、`python -m uvicorn` |
 | `'python' 不是内部或外部命令` | 没装 Python，或安装时没勾选 "Add Python to PATH"，去 python.org 重装并勾选 |
@@ -107,7 +112,6 @@ app/
   prompts.py   各功能与各平台的提示词模板
   mock.py      演示模式的模板输出
   static/      前端单页（含自带的安全 Markdown 渲染器）
-start.bat      Windows 一键启动脚本
 tests/         接口测试（生成、历史记录、模型模式、异常、参数校验）
 data/          运行时自动创建的 SQLite 数据库（已被 .gitignore 忽略）
 ```
