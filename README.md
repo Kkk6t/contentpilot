@@ -19,23 +19,59 @@
 
 ## 快速开始
 
-需要 Python 3.10 及以上。
+需要 Python 3.10 及以上（命令行输入 `python --version` 确认）。
+
+### 第一步：下载项目（二选一）
+
+**方式 A：不会用 Git / 没装 Git（推荐新手）**
+
+1. 在本页面点绿色的 **Code** 按钮 → **Download ZIP**
+2. 解压到任意位置，例如 `D:\contentpilot-main`（打开文件夹应能直接看到 `app`、`requirements.txt`）
+3. Windows 用户可以直接**双击 `start.bat`**，它会自动安装依赖并启动，跳过第二步
+
+**方式 B：已安装 Git**
 
 ```bash
-git clone <你的仓库地址>
+git clone https://github.com/Kkk6t/contentpilot.git
 cd contentpilot
-pip install -r requirements.txt
-uvicorn app.main:app --reload
 ```
 
-浏览器打开 http://127.0.0.1:8000 即可使用。
+### 第二步：安装依赖并启动
+
+先用 `cd` 进入项目文件夹（Windows 跨盘符要加 `/d`，例如 `cd /d D:\contentpilot-main`），然后：
+
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+看到 `Uvicorn running on http://127.0.0.1:8000` 后，浏览器打开 http://127.0.0.1:8000 即可使用。不填 API Key 也能跑（演示模式）。
+
+> 为什么用 `python -m pip` 而不是 `pip`：Windows 上直接运行 `pip.exe` / `uvicorn.exe` 有时会被系统安全策略（智能应用控制 / Device Guard）拦截，或者调用到别的 Python 环境。`python -m` 的写法更稳。
+
+### 常见问题
+
+| 报错 | 原因与解决 |
+| --- | --- |
+| `'git' 不是内部或外部命令` | 没装 Git，用上面的方式 A 下载 ZIP |
+| `系统找不到指定的路径` | 项目还没下载下来，或 `cd` 的路径不对 |
+| `Could not open requirements file` | 当前不在项目文件夹里，先 `cd` 进去 |
+| `No module named 'app'` | 同上，必须在项目根目录（能看到 `app` 文件夹的那一层）运行 |
+| `...已被组织的 Device Guard 策略阻止` | 改用 `python -m pip`、`python -m uvicorn` |
+| `'python' 不是内部或外部命令` | 没装 Python，或安装时没勾选 "Add Python to PATH"，去 python.org 重装并勾选 |
 
 ### 接入大模型（可选）
 
+把 `.env.example` 复制一份改名为 `.env`：
+
 ```bash
+# Windows
+copy .env.example .env
+# macOS / Linux
 cp .env.example .env
-# 编辑 .env，填入 LLM_API_KEY，按需修改 LLM_BASE_URL 和 LLM_MODEL
 ```
+
+用记事本打开 `.env`，填入 `LLM_API_KEY`，按需修改 `LLM_BASE_URL` 和 `LLM_MODEL`，然后重启服务。
 
 页面右上角会显示当前是「演示模式」还是「已接入模型」。`.env` 已被 `.gitignore` 忽略，不会误提交密钥。
 
