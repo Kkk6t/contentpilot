@@ -3,19 +3,20 @@ import sqlite3
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, llm, mock, prompts
+from . import config, db, llm, mock, prompts
 
 log = logging.getLogger("contentpilot")
 
-app = FastAPI(title="ContentPilot", description="AI 内容运营助手", version="0.2.0")
+app = FastAPI(title="ContentPilot", description="AI 内容运营助手", version="0.3.0")
 
 STATIC_DIR = Path(__file__).parent / "static"
 Platform = Literal["wechat", "xiaohongshu", "twitter"]
+Length = Literal["short", "long"]
 
 
 class TopicsReq(BaseModel):
@@ -38,6 +39,18 @@ class TitlesReq(BaseModel):
 class RewriteReq(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     platform: Platform = "xiaohongshu"
+    length: Length = "short"
+
+
+# 配置值会写进 .env，禁止换行，避免一行里塞进别的配置
+_ONE_LINE = r"^[^\r\n]*$"
+
+
+class ConfigReq(BaseModel):
+    api_key: str = Field(default="", max_length=300, pattern=_ONE_LINE)
+    base_url: str = Field(default="", max_length=300, pattern=_ONE_LINE)
+    model: str = Field(default="", max_length=100, pattern=_ONE_LINE)
+    keep_key: bool = True  # api_key 留空时保留已保存的 Key
 
 
 async def _run(kind: str, params: dict) -> dict:
@@ -88,6 +101,70 @@ async def titles(req: TitlesReq):
 @app.post("/api/rewrite")
 async def rewrite(req: RewriteReq):
     return await _run("rewrite", req.model_dump())
+
+
+# ---------- 模型配置 ----------
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _local_only(request: Request) -> None:
+    """配置接口能读写 API Key，只允许本机访问。"""
+    host = request.client.host if request.client else ""
+    if host not in _LOCAL_HOSTS:
+        raise HTTPException(status_code=403, detail="只能在运行服务的这台电脑上修改配置")
+
+
+def _config_view() -> dict:
+    cfg = llm._cfg()
+    return {
+        "mode": "live" if cfg["key"] else "demo",
+        "has_key": bool(cfg["key"]),
+        "key_hint": config.mask(cfg["key"]),
+        "base_url": cfg["base"],
+        "model": cfg["model"],
+        "presets": config.PRESETS,
+    }
+
+
+def _merge(req: ConfigReq) -> dict:
+    current = llm._cfg()
+    key = req.api_key.strip() or (current["key"] if req.keep_key else "")
+    return {
+        "key": key,
+        "base": (req.base_url.strip() or llm.DEFAULT_BASE).rstrip("/"),
+        "model": req.model.strip() or llm.DEFAULT_MODEL,
+    }
+
+
+@app.get("/api/config")
+async def config_get(request: Request):
+    _local_only(request)
+    return _config_view()
+
+
+@app.post("/api/config")
+async def config_save(req: ConfigReq, request: Request):
+    _local_only(request)
+    cfg = _merge(req)
+    try:
+        config.save({"LLM_API_KEY": cfg["key"], "LLM_BASE_URL": cfg["base"], "LLM_MODEL": cfg["model"]})
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"写入 .env 失败：{e}")
+    return _config_view()
+
+
+@app.post("/api/config/test")
+async def config_test(req: ConfigReq, request: Request):
+    """用表单里的配置（未保存也可以）发一条极短的请求，确认 Key、地址、模型都能用。"""
+    _local_only(request)
+    cfg = _merge(req)
+    if not cfg["key"]:
+        raise HTTPException(status_code=400, detail="请先填写 API Key")
+    try:
+        reply = await llm.chat("你是连接测试助手。", "只回复两个字：成功", temperature=0, cfg=cfg)
+    except llm.LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"ok": True, "model": cfg["model"], "reply": reply[:50]}
 
 
 Kind = Literal["topics", "outline", "titles", "rewrite"]

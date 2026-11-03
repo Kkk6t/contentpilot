@@ -103,3 +103,23 @@ def test_live_mode_error_returns_502(monkeypatch):
     monkeypatch.setattr(llm, "chat", boom)
     r = client.post("/api/titles", json={"topic": "副业"})
     assert r.status_code == 502
+
+
+@pytest.mark.parametrize("platform", ["wechat", "xiaohongshu", "twitter"])
+def test_rewrite_long_is_longer_than_short(platform):
+    text = "AI 工具能帮大学生提高效率"
+    short = client.post("/api/rewrite", json={"text": text, "platform": platform, "length": "short"}).json()["result"]
+    long = client.post("/api/rewrite", json={"text": text, "platform": platform, "length": "long"}).json()["result"]
+    assert len(long) > len(short) * 1.5
+
+
+def test_rewrite_rejects_bad_length():
+    r = client.post("/api/rewrite", json={"text": "x", "length": "medium"})
+    assert r.status_code == 422
+
+
+def test_rewrite_prompt_includes_length():
+    from app import prompts
+
+    _, user = prompts.build("rewrite", {"text": "x", "platform": "wechat", "length": "long"})
+    assert "1500-2500" in user

@@ -20,6 +20,26 @@
   h1 { font-size: 22px; margin: 0; }
   .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
   .badge { font-size:12px; padding:4px 10px; border-radius:999px; background:var(--accent-soft); color:var(--accent); }
+  .mode-btn { border:1px solid transparent; cursor:pointer; font:inherit; font-size:13px; padding:6px 12px; }
+  .mode-btn:hover { border-color:var(--accent); }
+  .mode-btn.demo { background:#fff4e0; color:#a15c00; }
+  @media (prefers-color-scheme: dark) { .mode-btn.demo { background:#3a2d14; color:#f0b45a; } }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  .result-head .btns { display:flex; gap:8px; }
+  .modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-start; justify-content:center; padding:60px 16px; z-index:10; overflow:auto; }
+  .modal-mask.open { display:flex; }
+  .modal { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; width:100%; max-width:520px; }
+  .modal h2 { font-size:17px; margin:0 0 4px; }
+  .modal .sub { margin-bottom:6px; }
+  .modal .key-row { display:flex; gap:8px; }
+  .modal .key-row input { flex:1; }
+  .modal a { color:var(--accent); }
+  .msg { font-size:13px; margin-top:12px; display:none; padding:8px 10px; border-radius:8px; }
+  .msg.ok { display:block; background:#e6f6ec; color:#137333; }
+  .msg.bad { display:block; background:#fde8e6; color:#c5221f; }
+  @media (prefers-color-scheme: dark) { .msg.ok { background:#16301f; color:#81c995; } .msg.bad { background:#3b1a18; color:#f28b82; } }
+  .modal .actions { flex-wrap:wrap; }
+  .modal .actions .spacer { flex:1; }
   nav { display:flex; gap:8px; margin: 20px 0 12px; flex-wrap:wrap; }
   nav button { border:1px solid var(--line); background:var(--card); color:var(--text);
                padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
@@ -75,7 +95,7 @@
       <h1>ContentPilot</h1>
       <p class="sub">AI 内容运营助手：选题 · 大纲 · 标题 · 多平台改写</p>
     </div>
-    <span class="badge" id="mode">检测中…</span>
+    <button type="button" class="badge mode-btn" id="mode" title="点击配置大模型">检测中…</button>
   </header>
 
   <nav id="tabs">
@@ -90,11 +110,40 @@
     <form id="form"></form>
     <div class="err" id="err"></div>
     <div class="result" id="result">
-      <div class="result-head"><span id="meta"></span><button class="ghost" id="copy" type="button">复制结果</button></div>
+      <div class="result-head"><span id="meta"></span><div class="btns"><button class="ghost" id="copy" type="button">复制结果</button><button class="ghost" id="clear" type="button">清空</button></div></div>
       <div id="out" class="md"></div>
     </div>
   </div>
   <footer>ContentPilot · MIT License</footer>
+</div>
+
+<div class="modal-mask" id="cfg-mask">
+  <div class="modal" role="dialog" aria-labelledby="cfg-title">
+    <h2 id="cfg-title">配置大模型</h2>
+    <p class="sub">不配置也能用（演示模式）。填好后点「测试连接」确认可用，再保存。配置保存在项目文件夹的 .env 文件里，只存在你自己电脑上。</p>
+    <label>服务商</label>
+    <select id="cfg-preset"></select>
+    <div class="hint" id="cfg-key-link"></div>
+    <label>API Key</label>
+    <div class="key-row">
+      <input id="cfg-key" type="password" autocomplete="off" placeholder="粘贴你的 API Key，例如 sk-...">
+      <button type="button" class="ghost" id="cfg-eye">显示</button>
+    </div>
+    <div class="hint" id="cfg-key-hint"></div>
+    <label>接口地址（Base URL）</label>
+    <input id="cfg-base" placeholder="https://api.deepseek.com/v1">
+    <label>模型名称</label>
+    <input id="cfg-model" placeholder="deepseek-chat">
+    <div class="hint">选服务商会自动填好地址和模型名；模型名以服务商文档为准，可以手动改。</div>
+    <div class="msg" id="cfg-msg"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="cfg-demo">清除 Key，用演示模式</button>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="cfg-cancel">取消</button>
+      <button type="button" class="ghost" id="cfg-test">测试连接</button>
+      <button type="button" class="primary" id="cfg-save">保存</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -126,9 +175,28 @@ const TABS = {
   rewrite: {
     endpoint: '/api/rewrite', button: '开始改写',
     html: `<label>原文内容</label><textarea name="text" required maxlength="5000" placeholder="粘贴你已有的文章或想法"></textarea>
-           <label>目标平台</label><select name="platform">${PLATFORM_OPTS.replace('value="wechat"','value="wechat"').replace('<option value="xiaohongshu">','<option value="xiaohongshu" selected>')}</select>`,
+           <div class="row">
+             <div><label>目标平台</label><select name="platform">${PLATFORM_OPTS.replace('<option value="xiaohongshu">','<option value="xiaohongshu" selected>')}</select></div>
+             <div><label>篇幅</label><select name="length"><option value="short">短文</option><option value="long">长文</option></select></div>
+           </div>
+           <div class="hint" id="length-hint"></div>`,
   },
 };
+
+// 改写篇幅在不同平台的含义，选择时给出提示
+const LENGTH_HINTS = {
+  wechat:      { short: '短文：400-800 字，2-3 个小标题，适合快读', long: '长文：1500-2500 字，完整论证 + 方法 + 案例 + 互动' },
+  xiaohongshu: { short: '短笔记：200-400 字，3-5 个要点', long: '长笔记：600-1000 字，背景 + 方法 + 避坑，干货密度高' },
+  twitter:     { short: '单条推文：140 字以内', long: '推文串（thread）：5-8 条' },
+};
+// 注意不能用 form.elements.length：那是表单控件的个数，不是 name="length" 的字段
+const field = name => form.querySelector(`[name="${name}"]`);
+function updateLengthHint() {
+  const hint = document.getElementById('length-hint');
+  if (!hint) return;
+  const plat = field('platform').value, len = field('length').value;
+  hint.textContent = LENGTH_HINTS[plat][len] + (len === 'short' ? '。原文较短、想要完整文章时选「长文」' : '');
+}
 
 const form = document.getElementById('form');
 const resultBox = document.getElementById('result');
@@ -136,7 +204,9 @@ const out = document.getElementById('out');
 const meta = document.getElementById('meta');
 const errBox = document.getElementById('err');
 let current = 'topics';
-let rawResult = '';
+// 每个功能页各自保存输入和结果，切换页面不会丢，用户点「清空」才清掉
+const state = {};
+for (const k of Object.keys(TABS)) state[k] = { values: {}, result: '', meta: '', pending: false };
 
 // 小型 Markdown 渲染器：先整体转义 HTML，再渲染标题、粗体、列表、引用和段落，避免注入。
 function esc(s) {
@@ -177,14 +247,46 @@ function renderMd(src) {
   return html.join('');
 }
 
-function render(tab) {
+function saveValues() {
+  if (TABS[current]) state[current].values = Object.fromEntries(new FormData(form));
+}
+
+function showResult(tab) {
+  const st = state[tab];
+  if (st.result) {
+    out.innerHTML = renderMd(st.result);
+    meta.textContent = st.meta;
+    resultBox.style.display = 'block';
+  } else {
+    resultBox.style.display = 'none';
+  }
+}
+
+function setButton(tab) {
+  const btn = form.querySelector('.primary');
+  if (!btn) return;
+  btn.disabled = state[tab].pending;
+  btn.textContent = state[tab].pending ? '生成中…' : TABS[tab].button;
+}
+
+function render(tab, keepInputs = true) {
+  if (keepInputs) saveValues();
   current = tab;
-  resultBox.style.display = 'none';
   errBox.style.display = 'none';
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  if (tab === 'history') { renderHistoryShell(); return; }
+  if (tab === 'history') { resultBox.style.display = 'none'; renderHistoryShell(); return; }
   const t = TABS[tab];
   form.innerHTML = t.html + `<div class="actions"><button class="primary" type="submit">${t.button}</button></div>`;
+  for (const [name, value] of Object.entries(state[tab].values)) {
+    if (field(name)) field(name).value = value;
+  }
+  setButton(tab);
+  showResult(tab);
+  if (tab === 'rewrite') {
+    field('platform').onchange = updateLengthHint;
+    field('length').onchange = updateLengthHint;
+    updateLengthHint();
+  }
 }
 
 // ---------- 历史记录 ----------
@@ -314,40 +416,139 @@ document.getElementById('tabs').addEventListener('click', e => {
 form.addEventListener('submit', async e => {
   e.preventDefault();
   if (current === 'history') return;
-  const btn = form.querySelector('.primary');
+  const tab = current;              // 生成过程中用户可能切走，结果要回到发起的那一页
+  const st = state[tab];
   const data = Object.fromEntries(new FormData(form));
   if (data.count) data.count = Number(data.count);
-  btn.disabled = true; btn.textContent = '生成中…';
+  st.values = { ...data };
+  st.pending = true; setButton(tab);
   errBox.style.display = 'none';
   try {
-    const res = await fetch(TABS[current].endpoint, {
+    const json = await api(TABS[tab].endpoint, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data),
     });
-    const json = await res.json();
-    if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : '请求参数有误');
-    rawResult = json.result;
-    out.innerHTML = renderMd(rawResult);
-    meta.textContent = (json.mode === 'live' ? '由大模型生成' : '演示模式输出') + (json.history_id ? ' · 已保存到历史记录' : '');
-    resultBox.style.display = 'block';
+    st.result = json.result;
+    st.meta = (json.mode === 'live' ? '由大模型生成' : '演示模式输出') + (json.history_id ? ' · 已保存到历史记录' : '');
+    if (current === tab) showResult(tab);
   } catch (err) {
-    errBox.textContent = '出错了：' + err.message;
-    errBox.style.display = 'block';
+    if (current === tab) showError(err.message);
   } finally {
-    btn.disabled = false; btn.textContent = TABS[current].button;
+    st.pending = false;
+    if (current === tab) setButton(tab);
   }
 });
 
 document.getElementById('copy').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(rawResult);
+    await navigator.clipboard.writeText(state[current].result);
     const b = document.getElementById('copy'); b.textContent = '已复制';
     setTimeout(() => b.textContent = '复制结果', 1500);
   } catch (_) {}
 });
 
-fetch('/api/health').then(r => r.json()).then(h => {
-  document.getElementById('mode').textContent = h.mode === 'live' ? `已接入模型：${h.model}` : '演示模式（未配置 API Key）';
-}).catch(() => { document.getElementById('mode').textContent = '服务未连接'; });
+document.getElementById('clear').addEventListener('click', () => {
+  if (!TABS[current]) return;
+  if (state[current].pending) return;
+  state[current] = { values: {}, result: '', meta: '', pending: false };
+  render(current, false);
+});
+
+// ---------- 模型配置 ----------
+const $ = id => document.getElementById(id);
+const modeBtn = $('mode');
+let cfgData = null;
+
+function setModeBadge(cfg) {
+  modeBtn.classList.toggle('demo', cfg.mode !== 'live');
+  modeBtn.textContent = cfg.mode === 'live' ? `✓ 已接入：${cfg.model} · 修改` : '⚙ 演示模式 · 点击配置模型';
+}
+
+function cfgMsg(text, ok) {
+  const m = $('cfg-msg');
+  m.textContent = text;
+  m.className = 'msg ' + (ok ? 'ok' : 'bad');
+}
+
+function cfgBody() {
+  return JSON.stringify({ api_key: $('cfg-key').value.trim(), base_url: $('cfg-base').value.trim(), model: $('cfg-model').value.trim() });
+}
+
+function fillKeyLink() {
+  const p = cfgData.presets.find(x => x.id === $('cfg-preset').value);
+  const box = $('cfg-key-link');
+  box.replaceChildren();
+  if (!p) return;
+  box.append('还没有 Key？去 ');
+  const a = document.createElement('a');
+  a.href = p.key_url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = p.name + ' 控制台';
+  box.append(a, ' 创建一个');
+}
+
+async function openConfig() {
+  try { cfgData = await api('/api/config'); } catch (err) { showError(err.message); return; }
+  const sel = $('cfg-preset');
+  sel.innerHTML = '';
+  for (const p of cfgData.presets) sel.add(new Option(p.name, p.id));
+  sel.add(new Option('其他（自定义）', 'custom'));
+  if (cfgData.has_key) {
+    // 已配置过：显示当前保存的配置
+    const match = cfgData.presets.find(p => p.base_url === cfgData.base_url);
+    sel.value = match ? match.id : 'custom';
+    $('cfg-base').value = cfgData.base_url; $('cfg-model').value = cfgData.model;
+  } else {
+    // 第一次配置：默认选第一个服务商
+    const p = cfgData.presets[0];
+    sel.value = p.id; $('cfg-base').value = p.base_url; $('cfg-model').value = p.model;
+  }
+  $('cfg-key').value = '';
+  $('cfg-key').type = 'password'; $('cfg-eye').textContent = '显示';
+  $('cfg-key-hint').textContent = cfgData.has_key ? `已保存的 Key：${cfgData.key_hint}（留空表示继续使用）` : '';
+  $('cfg-msg').className = 'msg';
+  fillKeyLink();
+  $('cfg-mask').classList.add('open');
+  $('cfg-key').focus();
+}
+function closeConfig() { $('cfg-mask').classList.remove('open'); }
+
+$('cfg-preset').onchange = e => {
+  const p = cfgData.presets.find(x => x.id === e.target.value);
+  if (p) { $('cfg-base').value = p.base_url; $('cfg-model').value = p.model; }
+  fillKeyLink();
+};
+$('cfg-eye').onclick = () => {
+  const k = $('cfg-key'); const show = k.type === 'password';
+  k.type = show ? 'text' : 'password'; $('cfg-eye').textContent = show ? '隐藏' : '显示';
+};
+$('cfg-test').onclick = async () => {
+  const b = $('cfg-test'); b.disabled = true; b.textContent = '测试中…';
+  try {
+    const r = await api('/api/config/test', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: cfgBody() });
+    cfgMsg(`连接成功：${r.model} 可以正常使用，记得点「保存」`, true);
+  } catch (err) { cfgMsg('连接失败：' + err.message, false); }
+  finally { b.disabled = false; b.textContent = '测试连接'; }
+};
+$('cfg-save').onclick = async () => {
+  if (!$('cfg-key').value.trim() && !cfgData.has_key) { cfgMsg('请先填写 API Key', false); return; }
+  try {
+    const cfg = await api('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: cfgBody() });
+    setModeBadge(cfg); closeConfig();
+  } catch (err) { cfgMsg('保存失败：' + err.message, false); }
+};
+$('cfg-demo').onclick = async () => {
+  if (!confirm('将删除已保存的 API Key，切换回演示模式，确定吗？')) return;
+  try {
+    const cfg = await api('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ api_key: '', keep_key: false, base_url: $('cfg-base').value.trim(), model: $('cfg-model').value.trim() }) });
+    setModeBadge(cfg); closeConfig();
+  } catch (err) { cfgMsg('操作失败：' + err.message, false); }
+};
+$('cfg-cancel').onclick = closeConfig;
+$('cfg-mask').addEventListener('click', e => { if (e.target === $('cfg-mask')) closeConfig(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeConfig(); });
+modeBtn.onclick = openConfig;
+
+fetch('/api/health').then(r => r.json()).then(setModeBadge)
+  .catch(() => { modeBtn.textContent = '服务未连接'; });
 
 render('topics');
 </script>

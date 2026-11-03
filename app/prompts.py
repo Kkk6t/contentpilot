@@ -15,6 +15,22 @@ PLATFORMS = {
     },
 }
 
+# 改写篇幅：每个平台的短文/长文含义不同
+LENGTHS = {
+    "wechat": {
+        "short": "短文：400-800 字，2-3 个小标题，适合快速阅读。",
+        "long": "长文：1500-2500 字，4-6 个小标题，有场景开头、观点论证、具体方法步骤、案例和总结互动。",
+    },
+    "xiaohongshu": {
+        "short": "短笔记：200-400 字，3-5 个要点。",
+        "long": "长笔记：600-1000 字，分模块讲清背景、方法步骤、避坑提醒，干货密度高。",
+    },
+    "twitter": {
+        "short": "单条推文：不超过 140 个汉字，一条讲完。",
+        "long": "长推文串（thread）：5-8 条，首条是钩子，每条一个要点，最后一条总结并引导互动。",
+    },
+}
+
 SYSTEM_BASE = (
     "你是一名资深的中文内容运营专家，熟悉公众号、小红书、推特的内容规律。"
     "输出使用 Markdown，直接给结果，不要寒暄，不要解释你的步骤。"
@@ -42,9 +58,14 @@ def build(kind: str, p: dict) -> tuple[str, str]:
         )
     elif kind == "rewrite":
         plat = PLATFORMS[p["platform"]]
+        length = LENGTHS[p["platform"]][p.get("length", "short")]
         user = (
             f"请把下面的内容改写成适合【{plat['name']}】发布的版本。\n"
-            f"平台风格要求：{plat['style']}\n保留核心信息，不要编造事实。\n\n原文：\n{p['text']}"
+            f"平台风格要求：{plat['style']}\n"
+            f"篇幅要求：{length}\n"
+            "保留原文的核心观点。原文较短时，请围绕核心观点合理展开（原因、方法、例子），"
+            "但不要编造具体数据、人名和事实。\n\n"
+            f"原文：\n{p['text']}"
         )
     else:
         raise ValueError(f"未知功能：{kind}")

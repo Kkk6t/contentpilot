@@ -14,7 +14,7 @@
 | 选题生成 | 按赛道和目标读者，给出多个选题、切入角度和点开理由 |
 | 文章大纲 | 针对不同平台输出带钩子、核心段落和互动设计的大纲 |
 | 爆款标题 | 覆盖数字型、反常识型、痛点型、悬念型、对比型等套路 |
-| 多平台改写 | 同一内容改写为公众号、小红书、推特风格 |
+| 多平台改写 | 同一内容改写为公众号、小红书、推特风格，可选短文 / 长文 |
 | 历史记录 | 每次生成自动保存；支持查看、复制、收藏、删除，按功能或收藏筛选，一键清空未收藏 |
 
 ## 快速开始
@@ -62,16 +62,15 @@ python -m uvicorn app.main:app --reload
 
 ### 接入大模型（可选）
 
-把 `.env.example` 复制一份改名为 `.env`：
+不配置也能用（演示模式）。想生成真实内容：
 
-```bash
-# Windows
-copy .env.example .env
-# macOS / Linux
-cp .env.example .env
-```
+1. 点页面右上角的「⚙ 演示模式 · 点击配置模型」
+2. 选服务商（内置 DeepSeek、通义千问、智谱 GLM、Kimi、硅基流动、OpenAI，也可以自定义），会自动填好接口地址和模型名
+3. 粘贴 API Key（弹窗里有各家申请 Key 的链接），点「测试连接」确认能用，再点「保存」
 
-用记事本打开 `.env`，填入 `LLM_API_KEY`，按需修改 `LLM_BASE_URL` 和 `LLM_MODEL`，然后重启服务。
+保存后立即生效，不用重启。配置写在项目文件夹的 `.env` 里，只保存在你自己电脑上；配置接口只允许本机访问。
+
+也可以手动配置：把 `.env.example` 复制为 `.env`（Windows 用 `copy .env.example .env`），填入 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 后重启服务。
 
 页面右上角会显示当前是「演示模式」还是「已接入模型」。`.env` 已被 `.gitignore` 忽略，不会误提交密钥。
 
@@ -87,6 +86,8 @@ python -m pytest -q
 | --- | --- | --- |
 | GET | `/api/health` | 当前模式（演示/已接入模型） |
 | POST | `/api/topics` `/api/outline` `/api/titles` `/api/rewrite` | 四个生成功能 |
+| GET / POST | `/api/config` | 查看 / 保存模型配置（仅本机，Key 只返回打码后的提示） |
+| POST | `/api/config/test` | 用填写的配置测试连接（不保存） |
 | GET | `/api/history` | 历史列表，支持 `kind`、`favorite`、`limit` 参数 |
 | GET | `/api/history/{id}` | 单条记录详情（含入参与完整结果） |
 | POST | `/api/history/{id}/favorite` | 切换收藏 |
@@ -100,17 +101,20 @@ python -m pytest -q
 ```
 app/
   main.py      FastAPI 路由与请求校验
-  llm.py       OpenAI 兼容接口客户端（异步，统一错误处理）
+  llm.py       OpenAI 兼容接口客户端（异步，错误码翻译成可读提示）
+  config.py    模型配置读写（写入 .env，即时生效）与服务商预设
   db.py        SQLite 历史记录存储（标准库，无额外依赖）
   prompts.py   各功能与各平台的提示词模板
   mock.py      演示模式的模板输出
   static/      前端单页（含自带的安全 Markdown 渲染器）
+start.bat      Windows 一键启动脚本
 tests/         接口测试（生成、历史记录、模型模式、异常、参数校验）
 data/          运行时自动创建的 SQLite 数据库（已被 .gitignore 忽略）
 ```
 
 ## 设计要点
 
+- **结果不丢**：每个功能页各自保留输入和结果，切换页面不会清空，由用户点「清空」决定。
 - **可降级**：无 Key 时走演示模式，保证项目任何环境都能运行和演示。
 - **接口统一**：四个功能共用一个执行入口，新增功能只需添加提示词和路由。
 - **错误可控**：模型调用失败统一转换为 502 并给出可读原因，前端友好提示。
